@@ -1,56 +1,72 @@
 const WebSocket = require("ws");
 
-const PORT = process.env.PORT || 10000;
-const AUTH_TOKEN = "NEXUS-PRIME-001";
+/* ================== PORT ================== */
+const PORT = process.env.PORT || 3000;
 
-const wss = new WebSocket.Server({ port: PORT });
+/* ================== WS SERVER ================== */
+const wss = new WebSocket.Server({
+  port: PORT,
+  path: "/ws"
+});
 
-let roverSocket = null;
-let clients = [];
+console.log("✅ Nexus Prime Cloud Server running on /ws");
 
-console.log("🌍 Nexus Prime Server running");
+/* ================== BROADCAST ================== */
+function broadcast(data) {
+  const msg = JSON.stringify(data);
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
+  });
+}
 
+/* ================== CONNECTION ================== */
 wss.on("connection", ws => {
+  console.log("🟢 Client connected");
 
   ws.on("message", msg => {
     let data;
+
     try {
-      data = JSON.parse(msg);
-    } catch {
+      data = JSON.parse(msg.toString());
+    } catch (e) {
+      console.log("❌ Invalid JSON received");
       return;
     }
 
-    if (data.token !== AUTH_TOKEN) {
-      ws.close();
-      return;
+    /* ========== NODE 1 : SENSOR NODE ========== */
+    if (data.node === 1) {
+
+      const normalizedPayload = {
+        radar: data.radar || null,
+
+        imu: data.imu || null,
+
+        power: data.power || null,
+
+        env: {
+          temp: data.temp ?? null,
+          hum:  data.hum  ?? null,
+          lux:  data.lux  ?? null
+        }
+      };
+
+      broadcast(normalizedPayload);
     }
 
-    if (data.role === "ROVER") {
-      roverSocket = ws;
-      console.log("🚗 Rover connected");
-      return;
+    /* ========== NODE 2 : ACTUATION / CONTROL ========== */
+    if (data.type === "ACTUATION" || data.type === "PAN_TILT") {
+      broadcast(data);
     }
 
-    if (data.role === "CLIENT") {
-      clients.push(ws);
-      console.log("🖥️ Client connected");
-      return;
-    }
-
-    if (ws === roverSocket) {
-      clients.forEach(c => {
-        if (c.readyState === WebSocket.OPEN)
-          c.send(JSON.stringify(data));
-      });
-    }
-
-    if (clients.includes(ws) && roverSocket) {
-      roverSocket.send(JSON.stringify(data));
+    /* ========== NODE 4 : ESP32-CAM (PLACEHOLDER) ========== */
+    if (data.type === "CAM_STATUS") {
+      broadcast(data);
     }
   });
 
   ws.on("close", () => {
-    clients = clients.filter(c => c !== ws);
-    if (ws === roverSocket) roverSocket = null;
+    console.log("🔴 Client disconnected");
   });
 });
