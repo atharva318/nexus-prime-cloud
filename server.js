@@ -35,16 +35,16 @@ wss.on("connection", ws => {
       return;
     }
 
-    /* ========== NODE 1 : SENSOR NODE ========== */
+    /* =========================================================
+       NODE 1 : SENSOR NODE (UNCHANGED — SAFE)
+       ========================================================= */
     if (data.node === 1) {
 
       const normalizedPayload = {
+        node: 1,
         radar: data.radar || null,
-
         imu: data.imu || null,
-
         power: data.power || null,
-
         env: {
           temp: data.temp ?? null,
           hum:  data.hum  ?? null,
@@ -53,16 +53,24 @@ wss.on("connection", ws => {
       };
 
       broadcast(normalizedPayload);
+      return;
     }
 
-    /* ========== NODE 2 : ACTUATION / CONTROL ========== */
-    if (data.type === "ACTUATION" || data.type === "PAN_TILT") {
+    /* =========================================================
+       NODE 2 : ACTUATION COMMANDS (NEW)
+       ========================================================= */
+    if (data.node === 2) {
+      // Commands are forwarded AS-IS to Node-2
       broadcast(data);
+      return;
     }
 
-    /* ========== NODE 4 : ESP32-CAM (PLACEHOLDER) ========== */
+    /* =========================================================
+       NODE 4 : ESP32-CAM STATUS (OPTIONAL)
+       ========================================================= */
     if (data.type === "CAM_STATUS") {
       broadcast(data);
+      return;
     }
   });
 
