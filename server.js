@@ -11,21 +11,12 @@ const wss = new WebSocket.Server({
 
 console.log("✅ Nexus Prime Cloud Server running on /ws");
 
-/* ================== BROADCAST HELPERS ================== */
-function broadcastAll(data) {
+/* ================== BROADCAST ================== */
+function broadcast(data) {
   const msg = JSON.stringify(data);
-  wss.clients.forEach(c => {
-    if (c.readyState === WebSocket.OPEN) {
-      c.send(msg);
-    }
-  });
-}
-
-function broadcastNode2(data) {
-  const msg = JSON.stringify(data);
-  wss.clients.forEach(c => {
-    if (c.readyState === WebSocket.OPEN) {
-      c.send(msg);
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
     }
   });
 }
@@ -44,11 +35,10 @@ wss.on("connection", ws => {
     }
 
     /* =====================================================
-       NODE 1 : SENSOR / TELEMETRY  (RESTORED & SAFE)
+       NODE 1 : SENSOR TELEMETRY
        ===================================================== */
     if (data.node === 1) {
-
-      const normalizedPayload = {
+      broadcast({
         node: 1,
         radar: data.radar || null,
         imu: data.imu || null,
@@ -58,27 +48,24 @@ wss.on("connection", ws => {
           hum:  data.hum  ?? null,
           lux:  data.lux  ?? null
         }
-      };
-
-      broadcastAll(normalizedPayload);
+      });
       return;
     }
 
     /* =====================================================
-       NODE 2 : ACTUATION (BLIND FORWARD ONLY)
+       NODE 2 : ACTUATION & PAN-TILT
        ===================================================== */
     if (data.node === 2) {
-      // DO NOT interpret content
-      // Node-2 decides motor / relay / servo
-      broadcastNode2(data);
+      // IMPORTANT: forward AS-IS
+      broadcast(data);
       return;
     }
 
     /* =====================================================
-       ESP32-CAM / OTHER STATUS
+       OTHER / CAMERA
        ===================================================== */
     if (data.type === "CAM_STATUS") {
-      broadcastAll(data);
+      broadcast(data);
       return;
     }
   });
