@@ -11,12 +11,24 @@ const wss = new WebSocket.Server({
 
 console.log("✅ Nexus Prime Cloud Server running on /ws");
 
-/* ================== CLIENT REGISTRY ================== */
-const clients = {
-  dashboard: new Set(),
-  node1: new Set(),
-  node2: new Set()
-};
+/* ================== BROADCAST HELPERS ================== */
+function broadcastAll(data) {
+  const msg = JSON.stringify(data);
+  wss.clients.forEach(c => {
+    if (c.readyState === WebSocket.OPEN) {
+      c.send(msg);
+    }
+  });
+}
+
+function broadcastNode2(data) {
+  const msg = JSON.stringify(data);
+  wss.clients.forEach(c => {
+    if (c.readyState === WebSocket.OPEN) {
+      c.send(msg);
+    }
+  });
+}
 
 /* ================== CONNECTION ================== */
 wss.on("connection", ws => {
@@ -27,44 +39,51 @@ wss.on("connection", ws => {
     try {
       data = JSON.parse(msg.toString());
     } catch {
+      console.log("❌ Invalid JSON");
       return;
     }
 
-    /* -------- REGISTER CLIENT -------- */
-    if (data.register) {
-      ws.role = data.register;
-      clients[data.register]?.add(ws);
-      console.log(`🔐 Registered as ${data.register}`);
-      return;
-    }
-
-    /* -------- NODE-1 TELEMETRY -------- */
+    /* =====================================================
+       NODE 1 : SENSOR / TELEMETRY  (RESTORED & SAFE)
+       ===================================================== */
     if (data.node === 1) {
-      clients.dashboard.forEach(c => {
-        if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify(data));
-      });
+
+      const normalizedPayload = {
+        node: 1,
+        radar: data.radar || null,
+        imu: data.imu || null,
+        power: data.power || null,
+        env: {
+          temp: data.temp ?? null,
+          hum:  data.hum  ?? null,
+          lux:  data.lux  ?? null
+        }
+      };
+
+      broadcastAll(normalizedPayload);
       return;
     }
 
-    /* -------- NODE-2 COMMAND -------- */
-    if (data.node === 2 && data.type === "ACTUATION") {
-      clients.node2.forEach(c => {
-        if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify(data));
-      });
+    /* =====================================================
+       NODE 2 : ACTUATION (BLIND FORWARD ONLY)
+       ===================================================== */
+    if (data.node === 2) {
+      // DO NOT interpret content
+      // Node-2 decides motor / relay / servo
+      broadcastNode2(data);
       return;
     }
 
-    /* -------- PAN TILT -------- */
-    if (data.node === 2 && data.type === "PAN_TILT") {
-      clients.node2.forEach(c => {
-        if (c.readyState === WebSocket.OPEN) c.send(JSON.stringify(data));
-      });
+    /* =====================================================
+       ESP32-CAM / OTHER STATUS
+       ===================================================== */
+    if (data.type === "CAM_STATUS") {
+      broadcastAll(data);
       return;
     }
   });
 
   ws.on("close", () => {
     console.log("🔴 Client disconnected");
-    Object.values(clients).forEach(set => set.delete(ws));
   });
 });
