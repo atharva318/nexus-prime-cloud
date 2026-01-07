@@ -11,6 +11,13 @@ const wss = new WebSocket.Server({
 
 console.log("✅ Nexus Prime Cloud Server running on /ws");
 
+/* ================== CLIENT REGISTRY (OPTIONAL) ================== */
+const clients = {
+  dashboard: new Set(),
+  node1: new Set(),
+  node2: new Set()
+};
+
 /* ================== BROADCAST ================== */
 function broadcast(data) {
   const msg = JSON.stringify(data);
@@ -35,10 +42,21 @@ wss.on("connection", ws => {
     }
 
     /* =====================================================
-       NODE 1 : SENSOR TELEMETRY
+       OPTIONAL REGISTRATION (NEVER BLOCKS FLOW)
+       ===================================================== */
+    if (data.register && clients[data.register]) {
+      ws.role = data.register;
+      clients[data.register].add(ws);
+      console.log(`🔐 Registered as ${data.register}`);
+      // DO NOT return — allow packet to continue if needed
+    }
+
+    /* =====================================================
+       NODE 1 : SENSOR / TELEMETRY
        ===================================================== */
     if (data.node === 1) {
-      broadcast({
+      // Normalize but NEVER restrict
+      const payload = {
         node: 1,
         radar: data.radar || null,
         imu: data.imu || null,
@@ -48,23 +66,25 @@ wss.on("connection", ws => {
           hum:  data.hum  ?? null,
           lux:  data.lux  ?? null
         }
-      });
+      };
+
+      broadcast(payload);
       return;
     }
 
     /* =====================================================
-       NODE 2 : ACTUATION & PAN-TILT
+       NODE 2 : ACTUATION / PAN-TILT / RELAYS
        ===================================================== */
     if (data.node === 2) {
-      // IMPORTANT: forward AS-IS
+      // Forward AS-IS (this is critical for motor movement)
       broadcast(data);
       return;
     }
 
     /* =====================================================
-       OTHER / CAMERA
+       OTHER (CAM, STATUS, FUTURE NODES)
        ===================================================== */
-    if (data.type === "CAM_STATUS") {
+    if (data.type) {
       broadcast(data);
       return;
     }
@@ -72,5 +92,6 @@ wss.on("connection", ws => {
 
   ws.on("close", () => {
     console.log("🔴 Client disconnected");
+    Object.values(clients).forEach(set => set.delete(ws));
   });
 });
