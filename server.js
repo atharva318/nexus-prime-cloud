@@ -88,6 +88,20 @@ wss.on("connection", ws => {
       broadcast(data);
       return;
     }
+    /* ========== NODE 3 : CAMERA STREAM ========== */
+if (data.type === "CAM_REGISTER") {
+  ws.node = 3;
+  ws.send(JSON.stringify({ type: "CAM_STATUS", status: "CONNECTED" }));
+}
+
+if (ws.node === 3 && Buffer.isBuffer(msg)) {
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN && client !== ws) {
+      client.send(msg);
+    }
+  });
+}
+
   });
 
   ws.on("close", () => {
