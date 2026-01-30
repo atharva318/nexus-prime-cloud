@@ -11,16 +11,9 @@ const wss = new WebSocket.Server({
 
 console.log("✅ Nexus Prime Cloud Server running on /ws");
 
-/* ================== CLIENT REGISTRY (OPTIONAL) ================== */
-const clients = {
-  dashboard: new Set(),
-  node1: new Set(),
-  node2: new Set()
-};
-
-/* ================== BROADCAST ================== */
-function broadcast(data) {
-  const msg = JSON.stringify(data);
+/* ================== BROADCAST JSON ================== */
+function broadcastJSON(obj) {
+  const msg = JSON.stringify(obj);
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(msg);
@@ -32,32 +25,32 @@ function broadcast(data) {
 wss.on("connection", ws => {
   console.log("🟢 Client connected");
 
-  ws.on("message", msg => {
+  ws.on("message", (msg, isBinary) => {
+
+    /* ================= BINARY = CAMERA FRAME ================= */
+    if (isBinary) {
+      if (ws.node === 3) {
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN && client !== ws) {
+            client.send(msg, { binary: true });
+          }
+        });
+      }
+      return;
+    }
+
+    /* ================= TEXT = JSON ================= */
     let data;
     try {
       data = JSON.parse(msg.toString());
     } catch {
-      console.log("❌ Invalid JSON");
+      console.log("❌ Invalid JSON received");
       return;
     }
 
-    /* =====================================================
-       OPTIONAL REGISTRATION (NEVER BLOCKS FLOW)
-       ===================================================== */
-    if (data.register && clients[data.register]) {
-      ws.role = data.register;
-      clients[data.register].add(ws);
-      console.log(`🔐 Registered as ${data.register}`);
-      // DO NOT return — allow packet to continue if needed
-    }
-
-    /* =====================================================
-       NODE 1 : SENSOR / TELEMETRY
-       ===================================================== */
+    /* ========== NODE 1 : SENSOR NODE ========== */
     if (data.node === 1) {
-      // Normalize but NEVER restrict
-      const payload = {
-        node: 1,
+      broadcastJSON({
         radar: data.radar || null,
         imu: data.imu || null,
         power: data.power || null,
@@ -66,46 +59,23 @@ wss.on("connection", ws => {
           hum:  data.hum  ?? null,
           lux:  data.lux  ?? null
         }
-      };
-
-      broadcast(payload);
-      return;
+      });
     }
 
-    /* =====================================================
-       NODE 2 : ACTUATION / PAN-TILT / RELAYS
-       ===================================================== */
-    if (data.node === 2) {
-      // Forward AS-IS (this is critical for motor movement)
-      broadcast(data);
-      return;
+    /* ========== NODE 2 : ACTUATION ========== */
+    if (data.type === "ACTUATION" || data.type === "PAN_TILT") {
+      broadcastJSON(data);
     }
 
-    /* =====================================================
-       OTHER (CAM, STATUS, FUTURE NODES)
-       ===================================================== */
-    if (data.type) {
-      broadcast(data);
-      return;
+    /* ========== NODE 3 : CAMERA REGISTER ========== */
+    if (data.type === "CAM_REGISTER") {
+      ws.node = 3;
+      console.log("📷 Camera node registered");
+      broadcastJSON({ type: "CAM_STATUS", status: "ONLINE" });
     }
-    /* ========== NODE 3 : CAMERA STREAM ========== */
-if (data.type === "CAM_REGISTER") {
-  ws.node = 3;
-  ws.send(JSON.stringify({ type: "CAM_STATUS", status: "CONNECTED" }));
-}
-
-if (ws.node === 3 && Buffer.isBuffer(msg)) {
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN && client !== ws) {
-      client.send(msg);
-    }
-  });
-}
-
   });
 
   ws.on("close", () => {
     console.log("🔴 Client disconnected");
-    Object.values(clients).forEach(set => set.delete(ws));
   });
 });
