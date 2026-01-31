@@ -73,6 +73,16 @@ wss.on("connection", ws => {
       console.log("📷 Camera node registered");
       broadcastJSON({ type: "CAM_STATUS", status: "ONLINE" });
     }
+    if (data.register === "yolo") {
+  ws.node = "YOLO";
+  console.log("🧠 YOLO node connected");
+}
+    if (data.type === "YOLO") {
+  // Forward detections to dashboard + rover
+  broadcastJSON(data);
+}
+
+
   });
 
   ws.on("close", () => {
