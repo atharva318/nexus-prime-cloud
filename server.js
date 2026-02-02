@@ -26,6 +26,7 @@ const MODES = {
 };
 
 /* ================== GLOBAL STATE ================== */
+let guardAlertActive = false;
 let mode = MODES.MANUAL;
 let emergencyStop = false;
 let aiActive = false;
