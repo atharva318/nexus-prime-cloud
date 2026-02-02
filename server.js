@@ -81,8 +81,26 @@ wss.on("connection", ws => {
   // Forward detections to dashboard + rover
   broadcastJSON(data);
 }
+    if (data.type === "AI_CMD") {
 
+  const speed = 100;
 
+  if (data.cmd === "FORWARD") {
+    broadcastJSON({ type: "ACTUATION", node: 2, move: "FORWARD", speed });
+  }
+
+  if (data.cmd === "TURN_LEFT") {
+    broadcastJSON({ type: "ACTUATION", node: 2, move: "LEFT", speed });
+  }
+
+  if (data.cmd === "TURN_RIGHT") {
+    broadcastJSON({ type: "ACTUATION", node: 2, move: "RIGHT", speed });
+  }
+
+  if (data.cmd === "STOP") {
+    broadcastJSON({ type: "ACTUATION", node: 2, move: "STOP", speed: 0 });
+  }
+}
   });
 
   ws.on("close", () => {
