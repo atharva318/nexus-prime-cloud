@@ -16,13 +16,18 @@ const RADAR_EMERGENCY_CM = 30;
 const RADAR_SLOW_CM = 80;
 const RADAR_SIDE_CM = 40;
 
+/* ================== TARGET NAV CONSTANTS ================== */
+const NAV_HEADING_TOLERANCE = 10;
+const NAV_SPEED = 80;
+
 /* ================== MODES ================== */
 const MODES = {
   MANUAL: "MANUAL",
   FOLLOW: "FOLLOW",
   GUARD: "GUARD",
   PATROL: "PATROL",
-  EMERGENCY: "EMERGENCY"
+  EMERGENCY: "EMERGENCY",
+  TARGET_NAV: "TARGET_NAV"
 };
 
 /* ================== GLOBAL STATE ================== */
@@ -38,8 +43,15 @@ let lastRadar = {
   right: 999
 };
 
+let lastIMU = { yaw: 0 };
+
 let manualOverrideUntil = 0;
 let patrolTimer = null;
+
+/* ================== TARGET NAV STATE ================== */
+let navActive = false;
+let navState = "IDLE"; // IDLE | TARGET_NAV | AVOIDING | REACQUIRE
+let targetHeading = 90;
 
 /* ================== SPEED FROM DISTANCE ================== */
 function speedFromDistance(dist) {
@@ -92,6 +104,95 @@ function stopPatrol() {
   }
 }
 
+/* ================== TARGET NAV LOOP ================== */
+setInterval(() => {
+
+  if (!navActive) return;
+  if (mode !== MODES.TARGET_NAV) return;
+  if (emergencyStop) return;
+
+  /* ---- OBSTACLE DETECTED ---- */
+  if (lastRadar.front < RADAR_SIDE_CM) {
+    navState = "AVOIDING";
+  }
+
+  /* ---- STATE MACHINE ---- */
+  if (navState === "TARGET_NAV") {
+
+    let error = targetHeading - lastIMU.yaw;
+
+    if (error > NAV_HEADING_TOLERANCE) {
+      broadcastJSON({
+        type: "ACTUATION",
+        node: 2,
+        move: "RIGHT",
+        speed: NAV_SPEED,
+        source: "TARGET_NAV"
+      });
+    }
+    else if (error < -NAV_HEADING_TOLERANCE) {
+      broadcastJSON({
+        type: "ACTUATION",
+        node: 2,
+        move: "LEFT",
+        speed: NAV_SPEED,
+        source: "TARGET_NAV"
+      });
+    }
+    else {
+      broadcastJSON({
+        type: "ACTUATION",
+        node: 2,
+        move: "FORWARD",
+        speed: NAV_SPEED,
+        source: "TARGET_NAV"
+      });
+    }
+  }
+
+  if (navState === "AVOIDING") {
+
+    if (lastRadar.left > RADAR_SIDE_CM) {
+      broadcastJSON({
+        type: "ACTUATION",
+        node: 2,
+        move: "LEFT",
+        speed: NAV_SPEED,
+        source: "AVOID"
+      });
+      navState = "REACQUIRE";
+    }
+    else if (lastRadar.right > RADAR_SIDE_CM) {
+      broadcastJSON({
+        type: "ACTUATION",
+        node: 2,
+        move: "RIGHT",
+        speed: NAV_SPEED,
+        source: "AVOID"
+      });
+      navState = "REACQUIRE";
+    }
+    else {
+      broadcastJSON({
+        type: "ACTUATION",
+        node: 2,
+        move: "STOP",
+        speed: 0,
+        source: "AVOID"
+      });
+    }
+  }
+
+  if (navState === "REACQUIRE") {
+    let error = targetHeading - lastIMU.yaw;
+
+    if (Math.abs(error) < NAV_HEADING_TOLERANCE) {
+      navState = "TARGET_NAV";
+    }
+  }
+
+}, 200);
+
 /* ================== CONNECTION ================== */
 wss.on("connection", ws => {
   console.log("🟢 Client connected");
@@ -118,10 +219,23 @@ wss.on("connection", ws => {
       return;
     }
 
+    /* ========== TARGET LOCK ========= */
+    if (data.type === "TARGET_LOCK") {
+      targetHeading = data.pan;
+      navActive = true;
+      navState = "TARGET_NAV";
+      mode = MODES.TARGET_NAV;
+
+      console.log("🎯 TARGET LOCKED AT:", targetHeading);
+      broadcastJSON({ type: "MODE_STATUS", mode });
+      return;
+    }
+
     /* ========== MODE SWITCH ========= */
     if (data.type === "MODE") {
       mode = data.mode;
       aiActive = false;
+      navActive = false;
 
       if (mode === MODES.PATROL) startPatrol();
       else stopPatrol();
@@ -167,6 +281,10 @@ wss.on("connection", ws => {
         }
       }
 
+      if (data.imu) {
+        lastIMU = data.imu;
+      }
+
       broadcastJSON({
         radar: data.radar || null,
         imu: data.imu || null,
@@ -207,12 +325,12 @@ wss.on("connection", ws => {
 
       if (mode === MODES.MANUAL || emergencyStop) return;
       if (Date.now() < manualOverrideUntil) return;
+      if (mode === MODES.TARGET_NAV) return; // Target nav has priority
 
       aiActive = true;
 
       let move = data.cmd;
       const avoid = sideAvoidance(lastRadar);
-
       if (avoid) move = avoid;
 
       const speed = speedFromDistance(lastRadar.front);
@@ -237,6 +355,7 @@ wss.on("connection", ws => {
 
       manualOverrideUntil = Date.now() + 500;
       aiActive = false;
+      navActive = false;
       mode = MODES.MANUAL;
 
       broadcastJSON(data);
